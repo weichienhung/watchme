@@ -10,13 +10,27 @@ A: Company ssh policy is a little big complex and i found many sftp plugin didn'
 
 ## How to use?
 
-1. Install the package globally
+0. setup ssh config to re-use connection
+
+```
+> cat ~/.ssh/config
+Host *.myserver.io  # all servers under myserver.io will apply
+  Hostname %h
+  ForwardAgent yes
+  ControlPath ~/.ssh/cs-%h-%r
+  ControlMaster auto
+  ControlPersist 900
+  ServerAliveInterval 60
+  ServerAliveCountMax 10
+```
+
+1. install the package globally
 
 ```
 npm install @weichienhung/watchme -g
 ```
 
-2. Prepare config file under project root folder
+2. prepare config file under project root folder
 
 create a `.watchme.json` in `/User/samuelhung/myproject/`  
 An example of `.watchme.json`

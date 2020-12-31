@@ -1,5 +1,5 @@
 #!/usr/bin/env node
 
-const watchme = require('./index');
+const watchme = require('./src/watchme');
 
 watchme();
