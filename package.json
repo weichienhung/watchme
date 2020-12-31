@@ -15,6 +15,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "np": {
+		"2fa": false
+	},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/weichienhung/watchme.git"
