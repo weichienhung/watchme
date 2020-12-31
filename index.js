@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const client = new watchman.Client();
 const { exec } = require('child_process');
+const { exit } = require('process');
 
 function runRsync({ user, host, remotePath, filePath, debug }) {
   exec(
@@ -116,11 +117,13 @@ function checkConfig() {
   let config;
   try {
     if (!fs.existsSync(configPath)) {
+      console.error('.watchme.json is missing');
       return null;
     }
     const rawdata = fs.readFileSync(configPath);
     config = JSON.parse(rawdata);
   } catch (err) {
+    console.error('.watchme.json is not valid json');
     return null;
   }
   const requiredKeys = ['host', 'user', 'type', 'remote_path'];
@@ -138,25 +141,29 @@ function checkConfig() {
   return config;
 }
 
-client.capabilityCheck(
-  { optional: [], required: ['relative_root'] },
-  function (error, resp) {
-    if (error) {
-      // error will be an Error object if the watchman service is not
-      // installed, or if any of the names listed in the `required`
-      // array are not supported by the server
-      console.error(error);
-      console.error('Please install watchman first.');
-      return;
-    }
+function start() {
+  client.capabilityCheck(
+    { optional: [], required: ['relative_root'] },
+    function (error, resp) {
+      if (error) {
+        // error will be an Error object if the watchman service is not
+        // installed, or if any of the names listed in the `required`
+        // array are not supported by the server
+        console.error(error);
+        console.error('Please install watchman first.');
+        exit(1);
+      }
 
-    const config = checkConfig();
-    if (!config) {
-      return;
+      const config = checkConfig();
+      if (!config) {
+        exit(1);
+      }
+      // resp will be an extended version response:
+      // {'version': '3.8.0', 'capabilities': {'relative_root': true}}
+      // console.log(resp);
+      watchFolder(config);
     }
-    // resp will be an extended version response:
-    // {'version': '3.8.0', 'capabilities': {'relative_root': true}}
-    // console.log(resp);
-    watchFolder(config);
-  }
-);
+  );
+}
+
+module.exports = start;

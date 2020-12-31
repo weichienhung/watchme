@@ -9,6 +9,9 @@
   "dependencies": {
     "fb-watchman": "^2.0.1"
   },
+  "bin": {
+    "watchme": "./cli.js"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/weichienhung/watchme.git"
