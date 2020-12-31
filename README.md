@@ -13,7 +13,7 @@ A: Company ssh policy is a little big complex and i found many sftp plugin didn'
 1. Install the package globally
 
 ```
-npm install -g
+npm install @weichienhung/watchme -g
 ```
 
 2. Prepare config file under project root folder
