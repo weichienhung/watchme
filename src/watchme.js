@@ -5,6 +5,10 @@ const client = new watchman.Client();
 const { exec } = require('child_process');
 const { exit } = require('process');
 
+const handlerPlaceHolder = {
+  rsync: runRsync,
+};
+
 function preCheck(config) {
   const { user, host } = config;
   return new Promise(function (resolve, reject) {
@@ -15,7 +19,7 @@ function preCheck(config) {
         reject();
         return;
       }
-      console.log(`precheck ${user}@${host} ok`);
+      console.info(`precheck ${user}@${host} ok`);
       resolve();
     });
   });
@@ -32,18 +36,12 @@ function runRsync({ user, host, remotePath, filePath, debug }) {
         );
         return;
       }
-      if (debug) {
-        console.log(`rsync ${filePath} to ${host}:${remotePath} ok`);
-      }
+      console.debug(`rsync ${filePath} to ${host}:${remotePath} ok`);
     }
   );
 }
 
 function registerOnSubscription(config) {
-  const handlerPlaceHolder = {
-    rsync: runRsync,
-  };
-
   const {
     user,
     debug,
@@ -55,14 +53,16 @@ function registerOnSubscription(config) {
   const handler = handlerPlaceHolder[type];
   client.on('subscription', function (resp) {
     resp.files.forEach(file => {
+      if (!file.exists) {
+        console.debug(`${filePath} is not exist. ignore`);
+        return;
+      }
       const filePath = file.name;
       const shouldIgnore = ignoreRegexes.some(regx => {
         return filePath.match(regx);
       });
       if (shouldIgnore) {
-        if (debug) {
-          console.log(`${filePath} match ignore_regexes. ignore`);
-        }
+        console.debug(`${filePath} match ignore_regexes. ignore`);
         return;
       }
       handler({ filePath, user, host, remotePath, debug });
@@ -115,7 +115,7 @@ function watchFolder(config) {
     // 'error' information to the user, as it may suggest steps
     // for remediation
     if ('warning' in resp) {
-      console.log('warning: ', resp.warning);
+      console.warn('warning: ', resp.warning);
     }
 
     // `watch-project` can consolidate the watch for your
@@ -123,7 +123,7 @@ function watchFolder(config) {
     // tree, so it is very important to record the `relative_path`
     // returned in resp
 
-    console.log(
+    console.info(
       'watch established on ',
       resp.watch,
       resp.relative_path ? ' relative_path' : '',
@@ -156,8 +156,9 @@ function getConfig() {
     console.error(`missing required keys in config. ${requiredKeys}`);
     return null;
   }
-  if (config.type !== 'rsync') {
-    console.error('type only supports rsync now');
+
+  if (!handlerPlaceHolder[config.type]) {
+    console.error(`${config.type} is not support`);
     return null;
   }
   config.ignore_regexes = config.ignore_regexes || [];
@@ -180,6 +181,9 @@ function start() {
       const config = getConfig();
       if (!config) {
         exit(1);
+      }
+      if (!config.debug) {
+        console.debug = () => {};
       }
 
       preCheck(config)
