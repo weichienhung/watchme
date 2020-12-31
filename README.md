@@ -45,3 +45,10 @@ An example of `.watchme.json`
   ]
 }
 ```
+
+3. execute `watchme` under your project root folder
+
+```
+> cd /User/samuelhung/myproject/
+> watchme
+```
