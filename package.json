@@ -1,6 +1,6 @@
 {
   "name": "@weichienhung/watchme",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -16,8 +16,8 @@
     "access": "public"
   },
   "np": {
-		"2fa": false
-	},
+    "2fa": false
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/weichienhung/watchme.git"
