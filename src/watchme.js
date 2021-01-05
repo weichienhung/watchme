@@ -2,28 +2,62 @@ const watchman = require('fb-watchman');
 const path = require('path');
 const fs = require('fs');
 const client = new watchman.Client();
-const { exec } = require('child_process');
-const { exit } = require('process');
+const process = require('process');
+const exit = process.exit;
+const { exec, spawn } = require('child_process');
 
 const handlerPlaceHolder = {
   rsync: runRsync,
 };
 
-function preCheck(config) {
+function doAuthenticate(config) {
   const { user, host } = config;
   return new Promise(function (resolve, reject) {
-    exec(`ssh -A ${user}@${host} echo helloworld`, (error, stdout, stderr) => {
-      if (error || stderr) {
-        console.error(`error: ${error.message}`);
-        console.error(`please authenticate ssh to ${host} first`);
-        reject();
+    process.stdin.setEncoding('utf8');
+
+    const child = spawn(`ssh -tt ${user}@${host} echo authenticate ok`, {
+      shell: true,
+      stdio: ['pipe', 'inherit', 'inherit'],
+    });
+    let inProgress = false;
+
+    process.stdin.on('data', function (chunk) {
+      if (inProgress) {
         return;
       }
-      console.info(`precheck ${user}@${host} ok`);
-      resolve();
+      lines = chunk.split('\n');
+      const yubikey = lines[0];
+      child.stdin.write(yubikey);
+      child.stdin.end();
+      inProgress = true;
+    });
+
+    child.on('exit', function (code) {
+      if (code == 0) {
+        resolve();
+      } else {
+        console.warn('authenticate failed');
+        reject();
+      }
     });
   });
 }
+
+// function preCheck(config) {
+//   const { user, host } = config;
+//   return new Promise(function (resolve, reject) {
+//     exec(`ssh -A ${user}@${host} echo helloworld`, (error, stdout, stderr) => {
+//       if (error || stderr) {
+//         console.error(`error: ${error.message}`);
+//         console.error(`please authenticate ssh to ${host} first`);
+//         reject();
+//         return;
+//       }
+//       console.info(`precheck ${user}@${host} ok`);
+//       resolve();
+//     });
+//   });
+// }
 
 function runRsync({ user, host, remotePath, filePath, debug }) {
   exec(
@@ -186,7 +220,7 @@ function start() {
         console.debug = () => {};
       }
 
-      preCheck(config)
+      doAuthenticate(config)
         .then(_ => {
           watchFolder(config);
         })
