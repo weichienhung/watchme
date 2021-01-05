@@ -20,9 +20,10 @@ function doAuthenticate(config) {
       stdio: ['pipe', 'inherit', 'inherit'],
     });
     let inProgress = false;
+    let stopStdin = false;
 
     process.stdin.on('data', function (chunk) {
-      if (inProgress) {
+      if (inProgress || stopStdin) {
         return;
       }
       lines = chunk.split('\n');
@@ -33,6 +34,7 @@ function doAuthenticate(config) {
     });
 
     child.on('exit', function (code) {
+      stopStdin = true;
       if (code == 0) {
         resolve();
       } else {
