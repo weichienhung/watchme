@@ -87,11 +87,11 @@ function registerOnSubscription(config) {
   const handler = handlerPlaceHolder[type];
   client.on('subscription', function (resp) {
     resp.files.forEach(file => {
+      const filePath = file.name;
       if (!file.exists) {
         console.debug(`${filePath} is not exist. ignore`);
         return;
       }
-      const filePath = file.name;
       const shouldIgnore = ignoreRegexes.some(regx => {
         return filePath.match(regx);
       });
