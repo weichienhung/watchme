@@ -10,28 +10,15 @@ A: Company ssh policy is a little big complex and i found many sftp plugin didn'
 
 ## How to use?
 
-0. setup ssh config to re-use connection
-
-```
-> cat ~/.ssh/config
-Host *.myserver.io  # all servers under myserver.io will apply
-  Hostname %h
-  ForwardAgent yes
-  ControlPath ~/.ssh/cs-%h-%r
-  ControlMaster auto
-  ControlPersist 900
-  ServerAliveInterval 60
-  ServerAliveCountMax 10
-```
-
 1. install the package globally
 
 ```
 npm install @weichienhung/watchme -g
 ```
 
-2. prepare config file under project root folder
+2. prepare config file
 
+e.g: `/User/samuelhung/myproject/` is the folder you want to monitor and auto upload change files.  
 create a `.watchme.json` in `/User/samuelhung/myproject/`  
 An example of `.watchme.json`
 
@@ -60,7 +47,32 @@ An example of `.watchme.json`
 }
 ```
 
-3. execute `watchme` under your project root folder
+You can set a global config file in home dir. e.g: `~/.watchme.json`  
+Put common settings. like `ignore_regexes`
+
+```
+{
+  "ignore_regexes": [
+    "watchme\\.json",
+    "/venv/",
+    "\\.svn/",
+    "\\.hg/",
+    "\\.git/",
+    "\\.bzr",
+    "_darcs",
+    "CVS",
+    "\\.DS_Store",
+    "Thumbs\\.db",
+    "desktop\\.ini",
+    "node_modules/",
+    "\\.vscode"
+  ]
+}
+```
+
+The final config are merged from global and local.
+
+3. execute `watchme`
 
 ```
 > cd /User/samuelhung/myproject/

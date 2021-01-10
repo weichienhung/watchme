@@ -6,19 +6,46 @@ const process = require('process');
 const exit = process.exit;
 const { exec, spawn } = require('child_process');
 
+const controlPersistSecs = 300;
+const controlPath = '~/.ssh/cs-%h-%r';
+
 const handlerPlaceHolder = {
   rsync: runRsync,
 };
 
-function doAuthenticate(config) {
+const colors = {
+  red: msg => {
+    return `\x1b[31m${msg}\x1b[0m`;
+  },
+  green: msg => {
+    return `\x1b[32m${msg}\x1b[0m`;
+  },
+  yellow: msg => {
+    return `\x1b[33m${msg}\x1b[0m`;
+  },
+};
+
+console.error = msg => {
+  return console.log(colors.red(msg));
+};
+console.warn = msg => {
+  return console.log(colors.yellow(msg));
+};
+
+function doAuthWithMasterConnection(config) {
   const { user, host } = config;
   return new Promise(function (resolve, reject) {
     process.stdin.setEncoding('utf8');
-
-    const child = spawn(`ssh -tt ${user}@${host} echo authenticate ok`, {
-      shell: true,
-      stdio: ['pipe', 'inherit', 'inherit'],
-    });
+    console.info('starting master connection...');
+    const child = spawn(
+      `ssh -A -tt -o ControlPath=${controlPath} -o ControlMaster=auto -o ControlPersist=${controlPersistSecs} ${user}@${host} echo ${colors.green(
+        'authenticate ok'
+      )}`,
+      {
+        shell: true,
+        stdio: ['pipe', 'inherit', 'inherit'],
+      }
+    );
     let inProgress = false;
     let stopStdin = false;
 
@@ -38,41 +65,44 @@ function doAuthenticate(config) {
       if (code == 0) {
         resolve();
       } else {
-        console.warn('authenticate failed');
+        console.error('authenticate failed');
         reject();
       }
     });
   });
 }
 
-// function preCheck(config) {
-//   const { user, host } = config;
-//   return new Promise(function (resolve, reject) {
-//     exec(`ssh -A ${user}@${host} echo helloworld`, (error, stdout, stderr) => {
-//       if (error || stderr) {
-//         console.error(`error: ${error.message}`);
-//         console.error(`please authenticate ssh to ${host} first`);
-//         reject();
-//         return;
-//       }
-//       console.info(`precheck ${user}@${host} ok`);
-//       resolve();
-//     });
-//   });
-// }
+function keepAliveConnection(config) {
+  const { user, host } = config;
+  setInterval(() => {
+    const child = spawn(
+      `ssh -S ${controlPath} ${user}@${host} echo keep alive`,
+      {
+        shell: true,
+      }
+    );
+
+    child.on('exit', function (code) {
+      if (code == 0) {
+        console.debug('keep alive ok');
+      } else {
+        console.warn('keep alive failed');
+      }
+    });
+  }, (controlPersistSecs / 5) * 1000);
+}
 
 function runRsync({ user, host, remotePath, filePath, debug }) {
   exec(
-    `rsync -av ${filePath} ${user}@${host}:${remotePath}/${filePath}`,
+    `rsync -av -e 'ssh -p 22 -S ${controlPath}' ${filePath} ${user}@${host}:${remotePath}/${filePath}`,
     (error, stdout, stderr) => {
       if (error || stderr) {
-        console.error(`error: ${error.message}`);
         console.error(
-          'please make sure remote folder exist or file permissions'
+          `rsync ${filePath} fail. please make sure remote folder exist or file permissions`
         );
         return;
       }
-      console.debug(`rsync ${filePath} to ${host}:${remotePath} ok`);
+      console.debug(colors.green(`rsync ${filePath} ok`));
     }
   );
 }
@@ -98,7 +128,7 @@ function registerOnSubscription(config) {
         return filePath.match(regx);
       });
       if (shouldIgnore) {
-        console.debug(`${filePath} match ignore_regexes. ignore`);
+        console.debug(`${filePath} match ignore_regexes.`);
         return;
       }
       handler({ filePath, user, host, remotePath, debug });
@@ -109,7 +139,7 @@ function registerOnSubscription(config) {
 function subscribeChanges(config, watch, relative_path) {
   client.command(['clock', watch], function (error, resp) {
     if (error) {
-      console.error('Failed to query clock:', error);
+      console.error(`Failed to query clock: ${error}`);
       return;
     }
 
@@ -143,7 +173,7 @@ function watchFolder(config) {
   // Initiate the watch
   client.command(['watch-project', process.cwd()], function (error, resp) {
     if (error) {
-      console.error('Error initiating watch:', error);
+      console.error(`Error initiating watch: ${error}`);
       return;
     }
 
@@ -159,31 +189,27 @@ function watchFolder(config) {
     // tree, so it is very important to record the `relative_path`
     // returned in resp
 
-    console.info(
-      'watch established on ',
-      resp.watch,
-      resp.relative_path ? ' relative_path' : '',
-      resp.relative_path ? resp.relative_path : ''
-    );
+    console.info('watch on local', resp.watch);
+    console.info('to remote', config.remote_path);
 
     subscribeChanges(config, resp.watch, resp.relative_path);
   });
 }
 
-function getConfig() {
-  const configPath = path.join(process.cwd(), '.watchme.json');
-  let config;
+function getConfig(configPath) {
   try {
     if (!fs.existsSync(configPath)) {
-      console.error(`${configPath} is missing`);
       return null;
     }
     const rawdata = fs.readFileSync(configPath);
-    config = JSON.parse(rawdata);
+    return JSON.parse(rawdata);
   } catch (err) {
     console.error(`${configPath} is not valid json`);
-    return null;
   }
+  return null;
+}
+
+function checkConfigKeys(config) {
   const requiredKeys = ['host', 'user', 'type', 'remote_path'];
   const allKeysReady = requiredKeys.every(key => {
     return config[key];
@@ -214,16 +240,30 @@ function start() {
         exit(1);
       }
 
-      const config = getConfig();
+      const localConfigPath = path.join(process.cwd(), '.watchme.json');
+      const localConfig = getConfig(localConfigPath);
+      if (!localConfig) {
+        exit(1);
+      }
+
+      const globalConfigPath = `${require('os').homedir()}/.watchme.json`;
+      const globalConfig = getConfig(globalConfigPath);
+
+      const mergedConfig = { ...globalConfig, ...localConfig };
+      const config = checkConfigKeys(mergedConfig);
       if (!config) {
         exit(1);
       }
+      console.debug('==== final config ====');
+      console.debug(config);
+
       if (!config.debug) {
         console.debug = () => {};
       }
 
-      doAuthenticate(config)
+      doAuthWithMasterConnection(config)
         .then(_ => {
+          keepAliveConnection(config);
           watchFolder(config);
         })
         .catch(_ => {
