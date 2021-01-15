@@ -94,7 +94,7 @@ function keepAliveConnection(config) {
 
 function runRsync({ user, host, remotePath, filePath, debug }) {
   exec(
-    `rsync -av -e 'ssh -p 22 -S ${controlPath}' ${filePath} ${user}@${host}:${remotePath}/${filePath}`,
+    `rsync -avP -e 'ssh -p 22 -S ${controlPath}' ${filePath} ${user}@${host}:${remotePath}/${filePath}`,
     (error, stdout, stderr) => {
       if (error || stderr) {
         console.error(
@@ -120,8 +120,12 @@ function registerOnSubscription(config) {
   client.on('subscription', function (resp) {
     resp.files.forEach(file => {
       const filePath = file.name;
+      if (file.type === 'd') {
+        console.debug(`${filePath} is dir`);
+        return;
+      }
       if (!file.exists) {
-        console.debug(`${filePath} is not exist. ignore`);
+        console.debug(`${filePath} is removed`);
         return;
       }
       const shouldIgnore = ignoreRegexes.some(regx => {
