@@ -6,7 +6,7 @@ A: Company ssh policy is a little big complex and i found many sftp plugin didn'
 ## Dependencies
 
 1. Install facebook's [watchman](https://facebook.github.io/watchman/) on your laptop
-2. Install nodejs
+2. Install nodejs (version > 12.18.0)
 
 ## How to use?
 

@@ -7,7 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 0"
   },
   "dependencies": {
-    "fb-watchman": "^2.0.1"
+    "fb-watchman": "^2.0.1",
+    "yargs": "^16.2.0"
   },
   "bin": {
     "watchme": "./cli.js"

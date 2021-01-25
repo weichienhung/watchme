@@ -5,6 +5,7 @@ const client = new watchman.Client();
 const process = require('process');
 const exit = process.exit;
 const { exec, spawn } = require('child_process');
+const { readdir } = require('fs').promises;
 
 const controlPersistSecs = 300;
 const controlPath = '~/.ssh/cs-%h-%r';
@@ -92,33 +93,25 @@ function keepAliveConnection(config) {
   }, (controlPersistSecs / 5) * 1000);
 }
 
-function runRsync({ user, host, remotePath, filePath, debug }) {
-  exec(
-    `rsync -avP -e 'ssh -p 22 -S ${controlPath}' ${filePath} ${user}@${host}:${remotePath}/${filePath}`,
-    (error, stdout, stderr) => {
-      if (error || stderr) {
-        console.error(
-          `rsync ${filePath} fail. please make sure remote folder exist or file permissions`
-        );
-        return;
+function runRsync({ user, host, remotePath, filePath }) {
+  return new Promise(function (resolve, reject) {
+    exec(
+      `rsync -avPR -e 'ssh -p 22 -S ${controlPath}' ${filePath} ${user}@${host}:${remotePath}`,
+      (error, stdout, stderr) => {
+        if (error || stderr) {
+          return reject(error || stderr);
+        }
+        resolve(stdout);
       }
-      console.debug(colors.green(`rsync ${filePath} ok`));
-    }
-  );
+    );
+  });
 }
 
 function registerOnSubscription(config) {
-  const {
-    user,
-    debug,
-    host,
-    remote_path: remotePath,
-    ignore_regexes: ignoreRegexes,
-    type,
-  } = config;
+  const { user, host, remotePath, ignoreRegexes, type } = config;
   const handler = handlerPlaceHolder[type];
   client.on('subscription', function (resp) {
-    resp.files.forEach(file => {
+    resp.files.forEach(async file => {
       const filePath = file.name;
       if (file.type === 'd') {
         console.debug(`${filePath} is dir`);
@@ -135,7 +128,19 @@ function registerOnSubscription(config) {
         console.debug(`${filePath} match ignore_regexes.`);
         return;
       }
-      handler({ filePath, user, host, remotePath, debug });
+      try {
+        await handler({
+          filePath,
+          user,
+          host,
+          remotePath,
+        });
+        console.debug(colors.green(`${filePath} ok`));
+      } catch {
+        console.error(
+          `${filePath} fail. please make sure remote permissions ok`
+        );
+      }
     });
   });
 }
@@ -200,7 +205,7 @@ function watchFolder(config) {
   });
 }
 
-function getConfig(configPath) {
+function loadConfig(configPath) {
   try {
     if (!fs.existsSync(configPath)) {
       return null;
@@ -227,14 +232,43 @@ function checkConfigKeys(config) {
     console.error(`${config.type} is not support`);
     return null;
   }
-  config.ignore_regexes = config.ignore_regexes || [];
+  config.remotePath = config.remote_path.endsWith('/')
+    ? config.remote_path
+    : `${config.remote_path}/`;
+  config.ignoreRegexes = config.ignore_regexes || [];
+
   return config;
 }
 
-function start() {
+function getFinalConfig() {
+  const localConfigPath = path.join(process.cwd(), '.watchme.json');
+  const localConfig = loadConfig(localConfigPath);
+  if (!localConfig) {
+    exit(1);
+  }
+
+  const globalConfigPath = `${require('os').homedir()}/.watchme.json`;
+  const globalConfig = loadConfig(globalConfigPath);
+
+  const mergedConfig = { ...globalConfig, ...localConfig };
+  const config = checkConfigKeys(mergedConfig);
+  if (!config) {
+    exit(1);
+  }
+
+  console.info('==== final config ====');
+  console.info(config);
+
+  if (!config.debug) {
+    console.debug = () => {};
+  }
+  return config;
+}
+
+function startWatch() {
   client.capabilityCheck(
     { optional: [], required: ['relative_root'] },
-    function (error, resp) {
+    async function (error, resp) {
       if (error) {
         // error will be an Error object if the watchman service is not
         // installed, or if any of the names listed in the `required`
@@ -244,37 +278,82 @@ function start() {
         exit(1);
       }
 
-      const localConfigPath = path.join(process.cwd(), '.watchme.json');
-      const localConfig = getConfig(localConfigPath);
-      if (!localConfig) {
+      const config = getFinalConfig();
+
+      try {
+        await doAuthWithMasterConnection(config);
+      } catch {
         exit(1);
       }
-
-      const globalConfigPath = `${require('os').homedir()}/.watchme.json`;
-      const globalConfig = getConfig(globalConfigPath);
-
-      const mergedConfig = { ...globalConfig, ...localConfig };
-      const config = checkConfigKeys(mergedConfig);
-      if (!config) {
-        exit(1);
-      }
-      console.debug('==== final config ====');
-      console.debug(config);
-
-      if (!config.debug) {
-        console.debug = () => {};
-      }
-
-      doAuthWithMasterConnection(config)
-        .then(_ => {
-          keepAliveConnection(config);
-          watchFolder(config);
-        })
-        .catch(_ => {
-          exit(1);
-        });
+      keepAliveConnection(config);
+      watchFolder(config);
     }
   );
 }
 
-module.exports = start;
+async function getFilesUnder({ rootDir, dir, ignoreRegexes }) {
+  const dirents = await readdir(dir, { withFileTypes: true });
+  const files = await Promise.all(
+    dirents.map(dirent => {
+      let pathName = path.resolve(dir, dirent.name);
+      pathName = dirent.isDirectory() ? `${pathName}/` : pathName;
+      const shouldIgnore = ignoreRegexes.some(regx => {
+        return pathName.match(regx);
+      });
+      if (shouldIgnore) {
+        console.debug(`${pathName} match ignore_regexes.`);
+        return null;
+      }
+      return dirent.isDirectory()
+        ? getFilesUnder({
+            rootDir,
+            dir: pathName,
+            ignoreRegexes,
+          })
+        : pathName;
+    })
+  );
+  const flattenFiles = Array.prototype.concat(...files);
+  const filteredFiles = flattenFiles.filter(file => file);
+  const relativeFiles = filteredFiles.map(file => {
+    return file.replace(`${rootDir}/`, '');
+  });
+  return relativeFiles;
+}
+
+async function uploadAll() {
+  const config = getFinalConfig();
+  try {
+    await doAuthWithMasterConnection(config);
+  } catch {
+    exit(1);
+  }
+  const { user, host, remotePath, type, ignoreRegexes } = config;
+  console.info('=== Prepare to upload all files ===');
+  const files = await getFilesUnder({
+    rootDir: process.cwd(),
+    dir: process.cwd(),
+    ignoreRegexes,
+  });
+  const handler = handlerPlaceHolder[type];
+  for (let index = 0; index < files.length; index++) {
+    const filePath = files[index];
+    try {
+      await handler({
+        filePath,
+        user,
+        host,
+        remotePath,
+      });
+      console.debug(colors.green(`${filePath} ok`));
+    } catch {
+      console.warn(`${filePath} failed`);
+    }
+  }
+  exit(0);
+}
+
+module.exports = {
+  startWatch,
+  uploadAll,
+};
