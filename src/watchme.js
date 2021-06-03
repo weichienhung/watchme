@@ -252,7 +252,7 @@ function getFinalConfig() {
 
   const mergedConfig = { ...globalConfig, ...localConfig };
   console.info('==== final config ====');
-  console.info(config);
+  console.info(mergedConfig);
   const config = checkConfigKeys(mergedConfig);
   if (!config) {
     exit(1);
