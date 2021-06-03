@@ -251,13 +251,12 @@ function getFinalConfig() {
   const globalConfig = loadConfig(globalConfigPath);
 
   const mergedConfig = { ...globalConfig, ...localConfig };
+  console.info('==== final config ====');
+  console.info(config);
   const config = checkConfigKeys(mergedConfig);
   if (!config) {
     exit(1);
   }
-
-  console.info('==== final config ====');
-  console.info(config);
 
   if (!config.debug) {
     console.debug = () => {};

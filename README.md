@@ -12,8 +12,8 @@ A: Company ssh policy is a little big complex and i found many sftp plugin didn'
 
 1. install the package globally
 
-```
-npm install @weichienhung/watchme -g
+```shell
+> npm install @weichienhung/watchme -g
 ```
 
 2. prepare config file
@@ -22,7 +22,7 @@ e.g: `/User/samuelhung/myproject/` is the folder you want to monitor and auto up
 create a `.watchme.json` in `/User/samuelhung/myproject/`  
 An example of `.watchme.json`
 
-```
+```json
 {
   "host": "remote server hostname",
   "user": "samuelhung",
@@ -50,7 +50,7 @@ An example of `.watchme.json`
 You can set a global config file in home dir. e.g: `~/.watchme.json`  
 Put common settings. like `ignore_regexes`
 
-```
+```json
 {
   "ignore_regexes": [
     "watchme\\.json",
@@ -74,7 +74,15 @@ The final config are merged from global and local.
 
 3. execute `watchme`
 
-```
+It will start monitor the folder and do upload when file changes.
+
+```shell
 > cd /User/samuelhung/myproject/
 > watchme
+```
+
+Print watchme usage.
+
+```shell
+> watchme -h
 ```
