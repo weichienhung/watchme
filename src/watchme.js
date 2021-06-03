@@ -4,7 +4,7 @@ const fs = require('fs');
 const client = new watchman.Client();
 const process = require('process');
 const exit = process.exit;
-const { exec, spawn } = require('child_process');
+const { exec, spawn, execSync } = require('child_process');
 const { readdir } = require('fs').promises;
 
 const controlPersistSecs = 300;
@@ -26,6 +26,9 @@ const colors = {
   },
 };
 
+console.info = msg => {
+  return console.log(colors.green(msg));
+};
 console.error = msg => {
   return console.log(colors.red(msg));
 };
@@ -113,19 +116,14 @@ function registerOnSubscription(config) {
   client.on('subscription', function (resp) {
     resp.files.forEach(async file => {
       const filePath = file.name;
-      if (file.type === 'd') {
-        console.debug(`${filePath} is dir`);
-        return;
-      }
-      if (!file.exists) {
-        console.debug(`${filePath} is removed`);
-        return;
-      }
+      const existMsg = !file.exists ? 'removed' : '';
+      const typeMsg = file.type === 'd' ? 'dir' : '';
       const shouldIgnore = ignoreRegexes.some(regx => {
         return filePath.match(regx);
       });
-      if (shouldIgnore) {
-        console.debug(`${filePath} match ignore_regexes.`);
+      const ignoreMsg = shouldIgnore ? 'match ignore_regexes' : '';
+      if (existMsg || typeMsg || ignoreMsg) {
+        console.debug(`${filePath} is ${typeMsg} ${existMsg} ${ignoreMsg}`);
         return;
       }
       try {
@@ -135,7 +133,7 @@ function registerOnSubscription(config) {
           host,
           remotePath,
         });
-        console.debug(colors.green(`${filePath} ok`));
+        console.debug(`${filePath} ok`);
       } catch {
         console.error(
           `${filePath} fail. please make sure remote permissions ok`
@@ -219,7 +217,7 @@ function loadConfig(configPath) {
 }
 
 function checkConfigKeys(config) {
-  const requiredKeys = ['host', 'user', 'type', 'remote_path'];
+  const requiredKeys = ['host', 'user', 'remote_path'];
   const allKeysReady = requiredKeys.every(key => {
     return config[key];
   });
@@ -228,6 +226,7 @@ function checkConfigKeys(config) {
     return null;
   }
 
+  config.type = config.type || 'rsync';
   if (!handlerPlaceHolder[config.type]) {
     console.error(`${config.type} is not support`);
     return null;
@@ -244,6 +243,7 @@ function getFinalConfig() {
   const localConfigPath = path.join(process.cwd(), '.watchme.json');
   const localConfig = loadConfig(localConfigPath);
   if (!localConfig) {
+    logger.error(`${localConfigPath} is not found`);
     exit(1);
   }
 
@@ -344,7 +344,7 @@ async function uploadAll() {
         host,
         remotePath,
       });
-      console.debug(colors.green(`${filePath} ok`));
+      console.debug(`${filePath} ok`);
     } catch {
       console.warn(`${filePath} failed`);
     }
@@ -352,7 +352,39 @@ async function uploadAll() {
   exit(0);
 }
 
+function initConfig() {
+  const localConfigPath = path.join(process.cwd(), '.watchme.json');
+  const whoami = execSync('whoami', { encoding: 'utf-8' });
+  const username = String(whoami).trim();
+  const config = {
+    user: username,
+    host: '',
+    remote_path: `/home/${username}`,
+    debug: true,
+    ignore_regexes: [
+      'watchme\\.json',
+      '/venv/',
+      '\\.svn/',
+      '\\.hg/',
+      '\\.git/',
+      '\\.bzr',
+      '_darcs',
+      'CVS',
+      '\\.DS_Store',
+      'Thumbs\\.db',
+      'desktop\\.ini',
+      'node_modules/',
+      '__pycache__/',
+      '\\.vscode',
+    ],
+  };
+  fs.writeFile(localConfigPath, JSON.stringify(config, null, 2), () => {
+    console.info('config initial done');
+  });
+}
+
 module.exports = {
   startWatch,
   uploadAll,
+  initConfig,
 };
