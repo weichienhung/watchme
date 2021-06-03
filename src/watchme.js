@@ -26,14 +26,14 @@ const colors = {
   },
 };
 
-console.info = msg => {
-  return console.log(colors.green(msg));
+console.info = (...msg) => {
+  return console.log(colors.green(msg.join(' ')));
 };
-console.error = msg => {
-  return console.log(colors.red(msg));
+console.error = (...msg) => {
+  return console.log(colors.red(msg.join(' ')));
 };
-console.warn = msg => {
-  return console.log(colors.yellow(msg));
+console.warn = (...msg) => {
+  return console.log(colors.yellow(msg.join(' ')));
 };
 
 function doAuthWithMasterConnection(config) {
@@ -197,7 +197,7 @@ function watchFolder(config) {
     // returned in resp
 
     console.info('watch on local', resp.watch);
-    console.info('to remote', config.remote_path);
+    console.info('to remote', config.remotePath);
 
     subscribeChanges(config, resp.watch, resp.relative_path);
   });
@@ -251,8 +251,8 @@ function getFinalConfig() {
   const globalConfig = loadConfig(globalConfigPath);
 
   const mergedConfig = { ...globalConfig, ...localConfig };
-  console.info('==== final config ====');
-  console.info(mergedConfig);
+  console.debug('==== final config ====');
+  console.debug(mergedConfig);
   const config = checkConfigKeys(mergedConfig);
   if (!config) {
     exit(1);
