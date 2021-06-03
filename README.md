@@ -16,10 +16,15 @@ A: Company ssh policy is a little big complex and i found many sftp plugin didn'
 > npm install @weichienhung/watchme -g
 ```
 
-2. prepare config file
+2. init a config file
 
 e.g: `/User/samuelhung/myproject/` is the folder you want to monitor and auto upload change files.  
-create a `.watchme.json` in `/User/samuelhung/myproject/`  
+Run below command to get a config `.watchme.json`
+
+```shell
+> watchme -i
+```
+
 An example of `.watchme.json`
 
 ```json
@@ -81,7 +86,7 @@ It will start monitor the folder and do upload when file changes.
 > watchme
 ```
 
-Print watchme usage.
+## Print watchme usage.
 
 ```shell
 > watchme -h
