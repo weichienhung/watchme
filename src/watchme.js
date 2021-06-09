@@ -324,7 +324,6 @@ async function uploadAll() {
   filteredList.forEach(function (path) {
     writeStream.write(path + '\n');
   });
-  console.log(filteredList);
   writeStream.end();
 
   console.info('run rsync to upload files to remote ...');
