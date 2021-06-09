@@ -5,14 +5,9 @@ const client = new watchman.Client();
 const process = require('process');
 const exit = process.exit;
 const { exec, spawn, execSync } = require('child_process');
-const { readdir } = require('fs').promises;
 
 const controlPersistSecs = 300;
 const controlPath = '~/.ssh/cs-%h-%r';
-
-const handlerPlaceHolder = {
-  rsync: runRsync,
-};
 
 const colors = {
   red: msg => {
@@ -88,9 +83,9 @@ function keepAliveConnection(config) {
 
     child.on('exit', function (code) {
       if (code == 0) {
-        console.debug('keep alive ok');
+        console.debug('=== keep alive ok ===');
       } else {
-        console.warn('keep alive failed');
+        console.warn('=== keep alive failed ===');
       }
     });
   }, (controlPersistSecs / 5) * 1000);
@@ -104,6 +99,7 @@ function runRsync({ user, host, remotePath, filePath }) {
         if (error || stderr) {
           return reject(error || stderr);
         }
+        console.debug(stdout);
         resolve(stdout);
       }
     );
@@ -111,8 +107,7 @@ function runRsync({ user, host, remotePath, filePath }) {
 }
 
 function registerOnSubscription(config) {
-  const { user, host, remotePath, ignoreRegexes, type } = config;
-  const handler = handlerPlaceHolder[type];
+  const { user, host, remotePath, ignoreRegexes } = config;
   client.on('subscription', function (resp) {
     resp.files.forEach(async file => {
       const filePath = file.name;
@@ -127,13 +122,12 @@ function registerOnSubscription(config) {
         return;
       }
       try {
-        await handler({
+        await runRsync({
           filePath,
           user,
           host,
           remotePath,
         });
-        console.debug(`${filePath} ok`);
       } catch {
         console.error(
           `${filePath} fail. please make sure remote permissions ok`
@@ -226,15 +220,12 @@ function checkConfigKeys(config) {
     return null;
   }
 
-  config.type = config.type || 'rsync';
-  if (!handlerPlaceHolder[config.type]) {
-    console.error(`${config.type} is not support`);
-    return null;
-  }
   config.remotePath = config.remote_path.endsWith('/')
     ? config.remote_path
     : `${config.remote_path}/`;
-  config.ignoreRegexes = config.ignore_regexes || [];
+  const rawRegx = config.ignore_regexes || [];
+  const compiledRegx = rawRegx.map(regx => new RegExp(regx, 'gi'));
+  config.ignoreRegexes = compiledRegx;
 
   return config;
 }
@@ -290,36 +281,6 @@ function startWatch() {
   );
 }
 
-async function getFilesUnder({ rootDir, dir, ignoreRegexes }) {
-  const dirents = await readdir(dir, { withFileTypes: true });
-  const files = await Promise.all(
-    dirents.map(dirent => {
-      let pathName = path.resolve(dir, dirent.name);
-      pathName = dirent.isDirectory() ? `${pathName}/` : pathName;
-      const shouldIgnore = ignoreRegexes.some(regx => {
-        return pathName.match(regx);
-      });
-      if (shouldIgnore) {
-        console.debug(`${pathName} match ignore_regexes.`);
-        return null;
-      }
-      return dirent.isDirectory()
-        ? getFilesUnder({
-            rootDir,
-            dir: pathName,
-            ignoreRegexes,
-          })
-        : pathName;
-    })
-  );
-  const flattenFiles = Array.prototype.concat(...files);
-  const filteredFiles = flattenFiles.filter(file => file);
-  const relativeFiles = filteredFiles.map(file => {
-    return file.replace(`${rootDir}/`, '');
-  });
-  return relativeFiles;
-}
-
 async function uploadAll() {
   const config = getFinalConfig();
   try {
@@ -327,28 +288,62 @@ async function uploadAll() {
   } catch {
     exit(1);
   }
-  const { user, host, remotePath, type, ignoreRegexes } = config;
-  console.info('=== Prepare to upload all files ===');
-  const files = await getFilesUnder({
-    rootDir: process.cwd(),
-    dir: process.cwd(),
-    ignoreRegexes,
-  });
-  const handler = handlerPlaceHolder[type];
-  for (let index = 0; index < files.length; index++) {
-    const filePath = files[index];
-    try {
-      await handler({
-        filePath,
-        user,
-        host,
-        remotePath,
+  const { user, host, remotePath, ignoreRegexes } = config;
+  console.info('=== Prepare to upload all files to remote ===');
+
+  let fileList;
+  try {
+    fileList = await new Promise(function (resolve, reject) {
+      exec(`find ${process.cwd()} -type f`, (error, stdout, stderr) => {
+        if (error || stderr) {
+          return reject(error || stderr);
+        }
+        resolve(stdout.split('\n'));
       });
-      console.debug(`${filePath} ok`);
-    } catch {
-      console.warn(`${filePath} failed`);
-    }
+    });
+  } catch {
+    console.error('failed to generate filelist');
+    exit(1);
   }
+  console.info(`total files: ${fileList.length}`);
+
+  const relativePathList = fileList.map(filePath => {
+    return filePath.replace(process.cwd() + '/', '');
+  });
+
+  const filteredList = relativePathList
+    .filter(filePath => {
+      return !ignoreRegexes.some(regx => filePath.match(regx));
+    })
+    .filter(filePath => filePath);
+  console.info(`after filtered files: ${filteredList.length}`);
+
+  console.info('create upload file list ...');
+  const tmpFileListPath = path.join(process.cwd(), '.watchme_upload_list');
+  const writeStream = fs.createWriteStream(tmpFileListPath);
+  filteredList.forEach(function (path) {
+    writeStream.write(path + '\n');
+  });
+  console.log(filteredList);
+  writeStream.end();
+
+  console.info('run rsync to upload files to remote ...');
+  await new Promise(function (resolve, reject) {
+    exec(
+      `rsync -avP --progress --files-from=${tmpFileListPath} -e 'ssh -p 22 -S ${controlPath}' ${process.cwd()} ${user}@${host}:${remotePath}`,
+      (error, stdout, stderr) => {
+        if (error || stderr) {
+          return reject(error || stderr);
+        }
+        console.debug(stdout);
+        resolve(stdout);
+      }
+    );
+  });
+
+  console.info('clean up upload file list');
+  fs.unlinkSync(tmpFileListPath);
+
   exit(0);
 }
 
@@ -383,8 +378,77 @@ function initConfig() {
   });
 }
 
+async function downloadAll() {
+  const config = getFinalConfig();
+  try {
+    await doAuthWithMasterConnection(config);
+  } catch {
+    exit(1);
+  }
+  const { user, host, remotePath, ignoreRegexes } = config;
+  console.info('=== Prepare to download all files from remote ===');
+
+  let fileList;
+  try {
+    fileList = await new Promise(function (resolve, reject) {
+      exec(
+        `ssh -A -W ${controlPath} ${user}@${host} find ${remotePath} -type f`,
+        (error, stdout, stderr) => {
+          if (error || stderr) {
+            return reject(error || stderr);
+          }
+          resolve(stdout.split('\n'));
+        }
+      );
+    });
+  } catch {
+    console.error('failed to generate filelist on remote host');
+    exit(1);
+  }
+  console.info(`total files: ${fileList.length}`);
+
+  const relativePathList = fileList.map(filePath => {
+    return filePath.replace(remotePath, '');
+  });
+
+  const filteredList = relativePathList
+    .filter(filePath => {
+      return !ignoreRegexes.some(regx => filePath.match(regx));
+    })
+    .filter(filePath => filePath);
+  console.info(`after filtered files: ${filteredList.length}`);
+
+  console.info('create download file list ...');
+  const tmpFileListPath = path.join(process.cwd(), '.watchme_download_list');
+  const writeStream = fs.createWriteStream(tmpFileListPath);
+  filteredList.forEach(function (path) {
+    writeStream.write(path + '\n');
+  });
+  writeStream.end();
+
+  console.info('run rsync to download files from remote ...');
+  await new Promise(function (resolve, reject) {
+    exec(
+      `rsync -avP --progress --files-from=${tmpFileListPath} -e 'ssh -p 22 -S ${controlPath}' ${user}@${host}:${remotePath} ${process.cwd()}`,
+      (error, stdout, stderr) => {
+        if (error || stderr) {
+          return reject(error || stderr);
+        }
+        console.debug(stdout);
+        resolve(stdout);
+      }
+    );
+  });
+
+  console.info('clean up download file list');
+  fs.unlinkSync(tmpFileListPath);
+
+  exit(0);
+}
+
 module.exports = {
   startWatch,
   uploadAll,
   initConfig,
+  downloadAll,
 };
