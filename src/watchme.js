@@ -234,7 +234,7 @@ function getFinalConfig() {
   const localConfigPath = path.join(process.cwd(), '.watchme.json');
   const localConfig = loadConfig(localConfigPath);
   if (!localConfig) {
-    logger.error(`${localConfigPath} is not found`);
+    console.error(`${localConfigPath} is not found`);
     exit(1);
   }
 
