@@ -294,11 +294,24 @@ async function uploadAll() {
   let fileList;
   try {
     fileList = await new Promise(function (resolve, reject) {
-      exec(`find ${process.cwd()} -type f`, (error, stdout, stderr) => {
-        if (error || stderr) {
-          return reject(error || stderr);
+      const child = spawn(`find ${process.cwd()} -type f`, { shell: true });
+      let resultString = '';
+      const has_error = false;
+      child.stdout.on('data', function (data) {
+        resultString += data.toString();
+      });
+
+      child.stderr.on('data', function (data) {
+        has_error = true;
+      });
+
+      child.on('close', function (code) {
+        console.log('child process exited with code ' + code);
+        if (has_error) {
+          reject();
+        } else {
+          resolve(resultString.split('\n'));
         }
-        resolve(stdout.split('\n'));
       });
     });
   } catch {
@@ -327,18 +340,22 @@ async function uploadAll() {
   writeStream.end();
 
   console.info('run rsync to upload files to remote ...');
-  await new Promise(function (resolve, reject) {
-    exec(
-      `rsync -avP --progress --files-from=${tmpFileListPath} -e 'ssh -p 22 -S ${controlPath}' ${process.cwd()} ${user}@${host}:${remotePath}`,
-      (error, stdout, stderr) => {
-        if (error || stderr) {
-          return reject(error || stderr);
+  try {
+    await new Promise(function (resolve, reject) {
+      exec(
+        `rsync -avP --progress --files-from=${tmpFileListPath} -e 'ssh -p 22 -S ${controlPath}' ${process.cwd()} ${user}@${host}:${remotePath}`,
+        (error, stdout, stderr) => {
+          if (error || stderr) {
+            return reject(error || stderr);
+          }
+          console.debug(stdout);
+          resolve(stdout);
         }
-        console.debug(stdout);
-        resolve(stdout);
-      }
-    );
-  });
+      );
+    });
+  } catch {
+    console.error('upload failed. could be permission issue on remote site');
+  }
 
   console.info('clean up upload file list');
   fs.unlinkSync(tmpFileListPath);
