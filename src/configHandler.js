@@ -22,7 +22,9 @@ function setupLogger({ config, name, isDebug }) {
   config.logger = getLogger(name, isDebug);
 }
 
-function santizeConfig(config, requiredKeys) {
+function santizeConfig(config) {
+  const requiredKeys = ['host', 'user', 'remote_path', 'local_path'];
+
   const allKeysReady = requiredKeys.every(key => {
     return config[key];
   });
@@ -48,15 +50,47 @@ function santizeConfig(config, requiredKeys) {
   return config;
 }
 
-function buildMainProfile(config) {
-  config.profiles = config.profiles || {};
-  config.profiles['main'] = config.profiles['main'] || {};
+function processProfiles(globalConfig, localConfig) {
+  const copyKeys = [
+    'host',
+    'user',
+    'remote_path',
+    'debug',
+    'ignore_regexes',
+    'local_path',
+  ];
+  const outputConfig = {};
+  // special for main profile
+  localConfig.profiles = localConfig.profiles || {};
+  localConfig.profiles.main = localConfig.profiles.main || {};
 
-  const copyKeys = ['host', 'user', 'remote_path', 'debug'];
-  copyKeys.forEach(key => {
-    config.profiles['main'][key] = config[key];
-  });
-  config.profiles['main']['local_path'] = config.local_path || process.cwd();
+  function mergeAttrs(config) {
+    for (profile in config.profiles) {
+      outputConfig[profile] = outputConfig[profile] || {};
+      copyKeys.forEach(key => {
+        // order:
+        // copy from config.profile.key
+        // copy from config.key
+        // copy form global.key
+        // Can't use sytax like xx || yy || zz, because the value might have false
+        if (config.profiles[profile][key] !== undefined) {
+          outputConfig[profile][key] = config.profiles[profile][key];
+        } else if (config[key] !== undefined) {
+          outputConfig[profile][key] = config[key];
+        } else if (globalConfig[key] !== undefined) {
+          outputConfig[profile][key] = globalConfig[key];
+        }
+      });
+      // special key to handle
+      outputConfig[profile].name = profile;
+      outputConfig[profile].local_path =
+        outputConfig[profile].local_path || process.cwd();
+    }
+  }
+
+  mergeAttrs(localConfig); //local must run before globalConfig.
+  mergeAttrs(globalConfig);
+  return outputConfig;
 }
 
 function getFinalConfig(profiles) {
@@ -66,35 +100,30 @@ function getFinalConfig(profiles) {
   const globalConfigPath = `${os.homedir()}/.watchme.json`;
   const globalConfig = loadConfig(globalConfigPath);
 
-  const mergedConfig = { ...globalConfig, ...localConfig };
-  buildMainProfile(mergedConfig);
+  let profileConfigs = processProfiles(globalConfig, localConfig);
 
-  let requireProfiles = '' + profiles || '';
-  requireProfiles = requireProfiles.split(',').filter(profile => profile);
+  const requireProfiles = profiles.split(',').filter(profile => profile);
   if (requireProfiles.length == 0) {
     requireProfiles.push('main');
   }
 
-  const requiredKeys = ['host', 'user', 'remote_path', 'local_path'];
   const returnProfiles = requireProfiles.map(profile => {
-    if (!mergedConfig.profiles[profile]) {
-      throw new Error(`profile '${profile}' is not defined in .watchme.config`);
+    if (!profileConfigs[profile]) {
+      throw new Error(`profile '${profile}' is not defined in .watchme.json`);
     }
 
-    const profileConfig = mergedConfig.profiles[profile];
-    const profileMergedConfig = { ...globalConfig, ...profileConfig };
+    const profileConfig = profileConfigs[profile];
     console.log(`====== profile ${profile} =======>>`);
-    console.log(profileMergedConfig);
+    console.log(profileConfig);
     console.log(`<<====== profile ${profile} =======`);
-    santizeConfig(profileMergedConfig, requiredKeys);
+    santizeConfig(profileConfig);
     setupLogger({
-      config: profileMergedConfig,
+      config: profileConfig,
       name: profile,
-      isDebug: profileMergedConfig.debug,
+      isDebug: profileConfig.debug,
     });
-    mergedConfig.profiles[profile] = profileMergedConfig;
 
-    return profileMergedConfig;
+    return profileConfig;
   });
 
   return returnProfiles;
