@@ -67,10 +67,11 @@ function keepAliveConnection(config) {
   }, (controlPersistSecs / 5) * 1000);
 }
 
-function runRsync({ user, host, remotePath, filePath, logger }) {
+function runRsync({ user, host, remotePath, fileFolder, filePath, logger }) {
   return new Promise(function (resolve, reject) {
     exec(
       `rsync -avPR -e 'ssh -p 22 -S ${controlPath}' ${filePath} ${user}@${host}:${remotePath}`,
+      { cwd: fileFolder },
       (error, stdout, stderr) => {
         if (error || stderr) {
           return reject(error || stderr);
@@ -85,6 +86,9 @@ function runRsync({ user, host, remotePath, filePath, logger }) {
 function registerOnSubscription(config) {
   const { user, host, remotePath, ignoreRegexes, logger } = config;
   client.on('subscription', function (resp) {
+    if (resp.subscription !== `subscription-${config.name}`) return;
+
+    const rootDir = resp.root;
     resp.files.forEach(async file => {
       const filePath = file.name;
       const existMsg = !file.exists ? 'removed' : '';
@@ -100,6 +104,7 @@ function registerOnSubscription(config) {
       try {
         await runRsync({
           filePath,
+          fileFolder: rootDir,
           user,
           host,
           remotePath,
@@ -133,7 +138,7 @@ function subscribeChanges(config, watch, relative_path) {
     }
 
     client.command(
-      ['subscribe', watch, 'mysubscription', sub],
+      ['subscribe', watch, `subscription-${config.name}`, sub],
       function (error, resp) {
         // handle the result here
         if (error) {
@@ -164,7 +169,6 @@ function watchFolder(config) {
     // dir_of_interest with another watch at a higher level in the
     // tree, so it is very important to record the `relative_path`
     // returned in resp
-
     logger.info('watch on local', resp.watch);
     logger.info('to remote', remotePath);
 
