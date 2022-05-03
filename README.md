@@ -1,6 +1,6 @@
 # Watch file changes and upload to remote servers
 
-Q: Why should i need this?  
+Q: Why should i need this?
 A: Company ssh policy is a little big complex and i found many sftp plugin didn't work well. But the mac laptop `rsync,sftp` works ok. So i create a simple project to monitor changes and do upload to remote servers
 
 ## Dependencies
@@ -18,7 +18,7 @@ A: Company ssh policy is a little big complex and i found many sftp plugin didn'
 
 2. init a config file
 
-e.g: `/User/samuelhung/myproject/` is the folder you want to monitor and auto upload change files.  
+e.g: `/User/samuelhung/myproject/` is the folder you want to monitor and auto upload change files.
 Run below command to get a config `.watchme.json`
 
 ```shell
@@ -52,7 +52,7 @@ An example of `.watchme.json`
 }
 ```
 
-You can set a global config file in home dir. e.g: `~/.watchme.json`  
+You can set a global config file in home dir. e.g: `~/.watchme.json`
 Put common settings. like `ignore_regexes`
 
 ```json
@@ -90,4 +90,12 @@ It will start monitor the folder and do upload when file changes.
 
 ```shell
 > watchme -h
+```
+
+## Support watch multiple folders
+
+Use `-p profile1,profile2` to specify multiple configs
+
+```shell
+> watchme -p profile1,profile2
 ```
